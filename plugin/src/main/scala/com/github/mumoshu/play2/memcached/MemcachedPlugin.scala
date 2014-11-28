@@ -9,6 +9,7 @@ import play.api.{Logger, Play, Application}
 import scala.util.control.Exception._
 import net.spy.memcached.transcoders.{Transcoder, SerializingTranscoder}
 import net.spy.memcached.compat.log.{Level, AbstractLogger}
+import java.util.concurrent._
 
 class Slf4JLogger(name: String) extends AbstractLogger(name) {
 
@@ -36,6 +37,24 @@ class Slf4JLogger(name: String) extends AbstractLogger(name) {
 class MemcachedPlugin(app: Application) extends CachePlugin {
 
   lazy val logger = Logger("memcached.plugin")
+
+  lazy val executorService = {
+    play.libs.Akka.system.dispatcher
+    val maximumPoolSize = app.configuration.getString("memcached.maximumPoolSize").map(_.toInt).getOrElse(Runtime.getRuntime.availableProcessors())
+    val threadFactory = new ThreadFactory() {
+      override def newThread(r: Runnable): Thread = {
+        new Thread(r, "FutureNotifyListener")
+      }
+    }
+    new ThreadPoolExecutor(
+      0,
+      maximumPoolSize,
+      60L,
+      TimeUnit.SECONDS,
+      new LinkedBlockingQueue[Runnable](),
+      threadFactory
+    )
+  }
 
   lazy val client = {
     System.setProperty("net.spy.log.LoggerImpl", "com.github.mumoshu.play2.memcached.Slf4JLogger")
@@ -65,6 +84,7 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
         val cf = new ConnectionFactoryBuilder()
           .setProtocol(ConnectionFactoryBuilder.Protocol.BINARY)
           .setAuthDescriptor(ad)
+          .setListenerExecutorService(executorService)
           .build()
 
         new MemcachedClient(cf, addrs)
@@ -75,7 +95,7 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
   }
 
   import java.io._
-  
+
   class CustomSerializing extends SerializingTranscoder{
 
     // You should not catch exceptions and return nulls here,
@@ -96,7 +116,7 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
       new ObjectOutputStream(bos).writeObject(obj)
       bos.toByteArray()
     }
-  } 
+  }
 
   lazy val tc = new CustomSerializing().asInstanceOf[Transcoder[Any]]
 
@@ -146,7 +166,7 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
       }
     }
   }
-  
+
   lazy val namespace: String = app.configuration.getString("memcached.namespace").getOrElse("")
 
   lazy val timeout: Int = app.configuration.getInt("memcached.timeout").getOrElse(1)
@@ -154,7 +174,7 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
   lazy val timeunit: TimeUnit = {
     app.configuration.getString("memcached.timeunit").getOrElse("seconds") match {
       case "seconds" => TimeUnit.SECONDS
-      case "milliseconds" => TimeUnit.MILLISECONDS 
+      case "milliseconds" => TimeUnit.MILLISECONDS
       case "microseconds" => TimeUnit.MICROSECONDS
       case "nanoseconds" => TimeUnit.NANOSECONDS
       case _ => TimeUnit.SECONDS

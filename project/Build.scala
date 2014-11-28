@@ -1,15 +1,18 @@
 import sbt._
 import Keys._
+import play.Project._
 
 object ApplicationBuild extends Build {
 
   val appName         = "play2-memcached"
-  val appVersion      = "0.6.0"
-  val appScalaVersion = "2.10.4"
-  val appScalaCrossVersions = appScalaVersion :: "2.11.1" :: Nil
+  val appVersion      = "0.3.0.2"
+  val appScalaVersion = "2.10.0"
+  val appScalaBinaryVersion = "2.10"
+  val appScalaCrossVersions = Seq("2.10.0")
 
-  lazy val baseSettings = Seq(
+  lazy val baseSettings = Defaults.defaultSettings ++ Seq(
     scalaVersion := appScalaVersion,
+    scalaBinaryVersion := appScalaBinaryVersion,
     crossScalaVersions := appScalaCrossVersions,
     parallelExecution in Test := false
   )
@@ -25,11 +28,9 @@ object ApplicationBuild extends Build {
     .settings(baseSettings: _*)
     .settings(
       resolvers += "Typesafe repository" at "http://repo.typesafe.com/typesafe/releases/",
-      resolvers += "Typesafe Maven Repository" at "http://repo.typesafe.com/typesafe/maven-releases/",
       resolvers += "Spy Repository" at "http://files.couchbase.com/maven2",
-      libraryDependencies += "net.spy" % "spymemcached" % "2.9.0",
-      libraryDependencies += "com.typesafe.play" %% "play" % play.core.PlayVersion.current % "provided",
-      libraryDependencies += "com.typesafe.play" %% "play-cache" % play.core.PlayVersion.current % "provided",
+      libraryDependencies += "spy" % "spymemcached" % "2.8.9",
+      libraryDependencies += "play" %% "play" % "2.1.0" % "provided",
       organization := "com.github.mumoshu",
       version := appVersion,
       publishTo <<= version { v: String =>
@@ -63,24 +64,23 @@ object ApplicationBuild extends Build {
         )
     )
 
-    lazy val scalaSample = Project(
+    lazy val scalaSample = play.Project(
       "scala-sample",
-      file("samples/scala")
-    ).enablePlugins(play.PlayScala).settings(
-      resolvers += "Typesafe Maven Repository" at "http://repo.typesafe.com/typesafe/maven-releases/",
-      libraryDependencies += play.PlayImport.cache,
+      path = file("samples/scala")
+    ).settings(
       scalaVersion := appScalaVersion,
+      scalaBinaryVersion := appScalaBinaryVersion,
       crossScalaVersions := appScalaCrossVersions,
+      crossVersion := CrossVersion.full,
       parallelExecution in Test := false,
       publishLocal := {},
       publish := {}
     ).dependsOn(plugin)
 
-    lazy val javaSample = Project(
+    lazy val javaSample = play.Project(
       "java-sample",
-      file("samples/java")
-    ).enablePlugins(play.PlayJava).settings(baseSettings: _*).settings(
-      libraryDependencies += play.PlayImport.cache,
+      path = file("samples/java")
+    ).settings(baseSettings: _*).settings(
       publishLocal := {},
       publish := {}
     ).dependsOn(plugin)
