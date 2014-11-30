@@ -40,14 +40,16 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
 
   lazy val executorService = {
     play.libs.Akka.system.dispatcher
+    val corePoolSize = app.configuration.getString("memcached.corePoolSize").map(_.toInt).getOrElse(0)
     val maximumPoolSize = app.configuration.getString("memcached.maximumPoolSize").map(_.toInt).getOrElse(Runtime.getRuntime.availableProcessors())
     val threadFactory = new ThreadFactory() {
       override def newThread(r: Runnable): Thread = {
         new Thread(r, "FutureNotifyListener")
       }
     }
+    logger.debug(s"corePoolSize=$corePoolSize , maximumPoolSize = $maximumPoolSize")
     new ThreadPoolExecutor(
-      0,
+      corePoolSize,
       maximumPoolSize,
       60L,
       TimeUnit.SECONDS,
@@ -60,6 +62,7 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
     System.setProperty("net.spy.log.LoggerImpl", "com.github.mumoshu.play2.memcached.Slf4JLogger")
 
     app.configuration.getString("elasticache.config.endpoint").map { endpoint =>
+      logger.debug("add ElasticCacheEndpoint")
       new MemcachedClient(AddrUtil.getAddresses(endpoint))
     }.getOrElse {
       lazy val singleHost = app.configuration.getString("memcached.host").map(AddrUtil.getAddresses)
@@ -73,7 +76,11 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
       val addrs = singleHost.orElse(multipleHosts)
         .getOrElse(throw new RuntimeException("Bad configuration for memcached: missing host(s)"))
 
-      app.configuration.getString("memcached.user").map { memcacheUser =>
+      val cf = app.configuration.getString("memcached.user").foldLeft{
+        new ConnectionFactoryBuilder()
+          .setProtocol(ConnectionFactoryBuilder.Protocol.BINARY)
+          .setListenerExecutorService(executorService)
+      } { (builder, memcacheUser) =>
         val memcachePassword = app.configuration.getString("memcached.password").getOrElse {
           throw new RuntimeException("Bad configuration for memcached: missing password")
         }
@@ -81,16 +88,11 @@ class MemcachedPlugin(app: Application) extends CachePlugin {
         // Use plain SASL to connect to memcached
         val ad = new AuthDescriptor(Array("PLAIN"),
           new PlainCallbackHandler(memcacheUser, memcachePassword))
-        val cf = new ConnectionFactoryBuilder()
-          .setProtocol(ConnectionFactoryBuilder.Protocol.BINARY)
-          .setAuthDescriptor(ad)
-          .setListenerExecutorService(executorService)
-          .build()
 
-        new MemcachedClient(cf, addrs)
-      }.getOrElse {
-        new MemcachedClient(addrs)
-      }
+        builder.setAuthDescriptor(ad)
+      }.build
+
+      new MemcachedClient(cf, addrs)
     }
   }
 
